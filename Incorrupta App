@@ -1,0 +1,204 @@
+{
+  "name": "mock-auth-backend",
+  "version": "1.0.0",
+  "description": "Backend for mock authentication system",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "axios": "^0.27.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.0.1",
+    "express": "^4.18.1",
+    "@supabase/supabase-js": "^1.28.1",
+    "form-data": "^4.0.0",
+    "@huggingface/inference": "^0.0.3",
+    "multer": "^1.4.4"
+  }
+}
+SUPABASE_URL=https://your-supabase-url
+SUPABASE_KEY=your-supabase-key
+PINATA_JWT=your-pinata-jwt
+HUGGING_FACE_API_KEY=your-huggingface-api-key
+const express = require('express');
+const cors = require('cors');
+const axios = require('axios');
+const FormData = require('form-data');
+const fs = require('fs');
+const { createClient } = require('@supabase/supabase-js');
+const { HfInference } = require('@huggingface/inference');
+const multer = require('multer');
+require('dotenv').config();
+
+const app = express();
+const port = 3000;
+
+app.use(cors());
+app.use(express.json());
+
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+const hf = new HfInference(process.env.HUGGING_FACE_API_KEY);
+const upload = multer({ dest: 'uploads/' });
+
+app.post('/api/upload-passport', upload.single('file'), async (req, res) => {
+  const file = req.file;
+
+  // OCR using Hugging Face
+  const ocrResult = await hf.ocr({ inputs: fs.createReadStream(file.path) });
+
+  // Extract passport data from OCR result (mock implementation)
+  const passportData = {
+    name: "John Doe",
+    passport_number: "A12345678",
+    date_of_birth: "1990-01-01",
+    expiry_date: "2030-01-01",
+    nationality: "Indian"
+  };
+
+  // Upload to Pinata
+  const formData = new FormData();
+  formData.append('file', fs.createReadStream(file.path));
+  const pinataRes = await axios.post('https://api.pinata.cloud/pinning/pinFileToIPFS', formData, {
+    headers: {
+      'Authorization': `Bearer ${process.env.PINATA_JWT}`,
+      ...formData.getHeaders(),
+    },
+  });
+
+  passportData.ipfs_hash = pinataRes.data.IpfsHash;
+
+  // Save to Supabase
+  const { data, error } = await supabase
+    .from('passports')
+    .insert([passportData]);
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  res.json({ success: true, data });
+});
+
+app.get('/api/get-passport', async (req, res) => {
+  const { data, error } = await supabase
+    .from('passports')
+    .select('*');
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  res.json({ success: true, data });
+});
+
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+});
+{
+  "name": "mock-auth-frontend",
+  "version": "1.0.0",
+  "description": "Frontend for mock authentication system",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "vite preview"
+  },
+  "dependencies": {
+    "axios": "^0.27.2",
+    "react": "^18.1.0",
+    "react-dom": "^18.1.0",
+    "react-router-dom": "^6.3.0",
+    "lucide-react": "^0.17.1"
+  },
+  "devDependencies": {
+    "vite": "^2.9.13",
+    "tailwindcss": "^3.0.24"
+  }
+}
+import React from 'react';
+import ReactDOM from 'react-dom';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import App from './App';
+import './index.css';
+
+ReactDOM.render(
+  <React.StrictMode>
+    <Router>
+      <Routes>
+        <Route path="/" element={<App />} />
+      </Routes>
+    </Router>
+  </React.StrictMode>,
+  document.getElementById('root')
+);
+import React from 'react';
+import PassportUpload from './components/PassportUpload';
+
+const App = () => {
+  return (
+    <div className="container mx-auto p-4">
+      <h1 className="text-2xl font-bold mb-4">Mock Authentication System</h1>
+      <PassportUpload />
+    </div>
+  );
+};
+
+export default App;
+import React, { useState } from 'react';
+import axios from 'axios';
+
+const PassportUpload = () => {
+  const [file, setFile] = useState(null);
+  const [uploadResponse, setUploadResponse] = useState(null);
+
+  const handleUpload = async () => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const res = await axios.post('http://localhost:3000/api/upload-passport', formData);
+    setUploadResponse(res.data);
+  };
+
+  return (
+    <div>
+      <input type="file" onChange={(e) => setFile(e.target.files[0])} className="mb-4" />
+      <button onClick={handleUpload} className="bg-blue-500 text-white p-2 rounded">
+        Upload Passport
+      </button>
+      {uploadResponse && (
+        <div className="mt-4">
+          <h2 className="text-xl font-bold">Upload Response:</h2>
+          <pre>{JSON.stringify(uploadResponse, null, 2)}</pre>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default PassportUpload;
+module.exports = {
+  content: [
+    "./index.html",
+    "./src/**/*.{vue,js,ts,jsx,tsx}",
+  ],
+  theme: {
+    extend: {},
+  },
+  plugins: [],
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mock Authentication System</title>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
+</body>
+</html>
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
